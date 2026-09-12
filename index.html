@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Süper Lig Radarı · Not gir</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#F3F5F1); --card:var(--tg-theme-secondary-bg-color,#fff); --ink:var(--tg-theme-text-color,#182420);
+  --muted:var(--tg-theme-hint-color,#66716B); --acc:var(--tg-theme-button-color,#2C7A57); --accink:var(--tg-theme-button-text-color,#fff);
+  --line:rgba(128,128,128,.25); --good:#1E7F48; --warn:#B8790F;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:12px 12px 90px}
+h1{font-size:20px;margin:4px 0 2px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
+.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.04em}
+select,input{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.chip{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:10px 14px;font:inherit;font-size:15px}
+.chip.on{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+.help{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.35}
+button.btn{width:100%;font:inherit;font-weight:600;border:0;border-radius:12px;padding:14px;margin-top:10px;background:var(--acc);color:var(--accink)}
+button.btn.sec{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+button.btn:disabled{opacity:.45}
+ul.pending{list-style:none;padding:0;margin:0}
+ul.pending li{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+ul.pending li:first-child{border-top:0}
+ul.pending b{font-weight:600}
+ul.pending button{background:none;border:0;color:var(--warn);font:inherit;padding:4px 8px}
+.bar{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}
+.toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;max-width:92vw}
+.toast.show{opacity:1}
+.row{display:flex;gap:8px}
+.row .btn{margin-top:0}
+code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:14px}
+</style>
+</head>
+<body>
+<h1>⚽ Süper Lig Radarı</h1>
+<div class="sub">Gözlemini seç, gönder. Bot ✅ ile onaylar; rapor "senin notun" diye işaretler. Not, bu haftanın son maçına kadar geçerli.</div>
+
+<div class="card">
+  <label>Takım</label>
+  <select id="team"></select>
+
+  <label>Kriter</label>
+  <select id="field"></select>
+  <div class="help" id="fieldHelp"></div>
+
+  <label>Değer</label>
+  <div class="chips" id="values"></div>
+  <input id="num" type="number" inputmode="numeric" hidden>
+
+  <button class="btn sec" id="add">＋ Listeye ekle</button>
+</div>
+
+<div class="card">
+  <label>Gönderilecek notlar</label>
+  <ul class="pending" id="pending"><li class="help">Henüz not yok.</li></ul>
+</div>
+
+<div class="card">
+  <div class="row">
+    <button class="btn sec" id="list">📋 Bu haftaki notlarım</button>
+    <button class="btn sec" id="helpb">❓ Yardım</button>
+  </div>
+  <div class="help">Bot mesajları 3 saatte bir okur; onay en geç o sürede gelir. Salı ve Cuma 09:00 raporundan önce gönderilen notlar o rapora girer.</div>
+</div>
+
+<div class="bar"><button class="btn" id="send" disabled>Gönder</button></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TEAMS=["Alanyaspor","Amedspor","Başakşehir","Beşiktaş","Çorum FK","Erzurumspor","Eyüpspor","Fenerbahçe","Galatasaray","Gaziantep","Gençlerbirliği","Göztepe","Kasımpaşa","Kocaelispor","Konyaspor","Rizespor","Samsunspor","Trabzonspor"];
+// [görünen ad, komut kelimesi, yardım, değerler: [[komut değeri, etiket],...] ya da "num:min:max"]
+const FIELDS=[
+  ["Sakat / cezalı kilit oyuncu","sakat","Bu maçta oynayamayacak ilk 11 düzeyindeki oyuncu sayısı. Her eksik: kendi gol beklentisi −%5, rakip +%3.",[["0","Tam kadro"],["1","1"],["2","2"],["3","3+"]]],
+  ["Motivasyon","motivasyon","Küme hattı, Avrupa yarışı, şampiyonluk. Her kademe kendi gol beklentisi ±%4.",[["-2","Çok düşük"],["-1","Düşük"],["0","Normal"],["+1","Yüksek"],["+2","Hayati"]]],
+  ["Fikstür yoğunluğu","yorgun","Son maçtan bu yana dinlenme. Her kademe kendi gol beklentisi −%4.",[["0","≥6 gün"],["1","4–5 gün"],["2","≤3 gün / Avrupa"]]],
+  ["Teknik direktör değişikliği","hoca","Yeni hoca, ilk 3 maç: kendi gol beklentisi +%5.",[["evet","Evet"],["hayır","Hayır"]]],
+  ["Form puanı (son 5 maç)","form","0–15 puan. 7,5'in üstü/altı her puan ±%0,8.","num:0:15"],
+  ["Tek farkla yenildi, iyi oynadı","toparlanma","Haksız tek farklı yenilgi → toparlanma: kendi +%8, rakip −%4.",[["evet","Evet"],["hayır","Hayır"]]],
+  ["4+ farkla yenildi (çöküş)","çöküş","Ağır yenilgi sonrası: kendi −%12, rakip +%6.",[["evet","Evet"],["hayır","Hayır"]]],
+  ["4+ farkla kazandı","farklı","Farklı galibiyet sonrası özgüven: kendi +%8, rakip −%4.",[["evet","Evet"],["hayır","Hayır"]]],
+  ["Tek farkla kazandı, kötü oynadı","şanslı","Şanslı galibiyet, düzeltme gelir: kendi −%8, rakip +%4.",[["evet","Evet"],["hayır","Hayır"]]],
+  ["Hakem (bu maç)","hakem","Seçtiğin takımın bu haftaki maçına uygulanır. Ev avantajı ±%4 kayar.",[["ev","Ev sahibine yatkın"],["nötr","Nötr"],["dep","Deplasmana yatkın"]]],
+  ["Hava / saha (bu maç)","hava","Yağmur, kar, kötü zemin: iki takım da −%8.",[["kötü","Kötü"],["normal","Normal"]]],
+  ["Derbi psikolojisi (bu maç)","derbi","Güç farkı %25 daralır, düşük skor eğilimi artar.",[["evet","Evet"],["hayır","Hayır"]]],
+];
+const tg=window.Telegram&&window.Telegram.WebApp; if(tg){tg.ready();tg.expand();}
+const $=id=>document.getElementById(id);
+const pending=[]; let val=null;
+$("team").innerHTML=TEAMS.map(t=>`<option>${t}</option>`).join("");
+$("field").innerHTML=FIELDS.map((f,i)=>`<option value="${i}">${f[0]}</option>`).join("");
+function renderField(){
+  const f=FIELDS[+$("field").value]; $("fieldHelp").textContent=f[2]; val=null;
+  if(typeof f[3]==="string"){ const [,mn,mx]=f[3].split(":"); $("values").innerHTML=""; $("num").hidden=false; $("num").min=mn; $("num").max=mx; $("num").value=""; $("num").placeholder=`${mn}–${mx}`; }
+  else { $("num").hidden=true; $("values").innerHTML=f[3].map(v=>`<button class="chip" data-v="${v[0]}">${v[1]}</button>`).join("");
+    $("values").querySelectorAll(".chip").forEach(b=>b.addEventListener("click",()=>{ $("values").querySelectorAll(".chip").forEach(x=>x.classList.remove("on")); b.classList.add("on"); val=b.dataset.v; })); }
+}
+$("field").addEventListener("change",renderField); renderField();
+function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2400); }
+function renderPending(){
+  const ul=$("pending");
+  ul.innerHTML=pending.length?pending.map((p,i)=>`<li><span><b>${p.team}</b> · ${p.label} → ${p.vlabel}</span><button data-i="${i}">Sil</button></li>`).join(""):`<li class="help">Henüz not yok.</li>`;
+  ul.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{ pending.splice(+b.dataset.i,1); renderPending(); }));
+  $("send").disabled=!pending.length; $("send").textContent=pending.length?`Gönder (${pending.length})`:"Gönder";
+}
+$("add").addEventListener("click",()=>{
+  const f=FIELDS[+$("field").value]; let v=val, vlabel;
+  if(typeof f[3]==="string"){ v=$("num").value.trim(); if(v===""||isNaN(+v)){toast("Bir sayı gir");return;} vlabel=v; }
+  else { if(v===null){toast("Bir değer seç");return;} vlabel=f[3].find(x=>x[0]===v)[1]; }
+  const team=$("team").value;
+  const idx=pending.findIndex(p=>p.team===team&&p.cmd===f[1]); if(idx>=0) pending.splice(idx,1);
+  pending.push({team,cmd:f[1],label:f[0],v,vlabel,text:`${team} ${f[1]} ${v}`}); renderPending(); toast("Eklendi");
+  if(tg&&tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+});
+function sendText(text){
+  if(tg&&tg.sendData){ tg.sendData(text); }
+  else { navigator.clipboard&&navigator.clipboard.writeText(text); toast("Telegram dışında açıldı: komutlar panoya kopyalandı, bota yapıştır."); }
+}
+$("send").addEventListener("click",()=>{ if(!pending.length) return; sendText(pending.map(p=>p.text).join("\n")); });
+$("list").addEventListener("click",()=>sendText("liste"));
+$("helpb").addEventListener("click",()=>sendText("yardım"));
+renderPending();
+</script>
+</body>
+</html>
